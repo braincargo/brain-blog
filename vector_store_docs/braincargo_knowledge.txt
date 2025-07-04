@@ -1,0 +1,22 @@
+# BrainCargo Knowledge Base
+
+## Company Overview
+BrainCargo is a cutting-edge AI technology company specializing in automated content generation and knowledge management systems.
+
+## Key Technologies
+- Advanced Large Language Model integration
+- Vector store-based knowledge retrieval
+- Multi-provider AI service architecture
+- Automated blog generation pipelines
+
+## Recent Developments
+- Successfully integrated OpenAI and Anthropic vector stores
+- Implemented fallback mechanisms for robust operation
+- Created comprehensive testing framework
+- Built scalable Docker-based deployment system
+
+## Technical Expertise
+- Python-based microservices
+- RESTful API design
+- Container orchestration
+- AI/ML pipeline optimization

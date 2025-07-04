@@ -1,0 +1,50 @@
+TECHNOLOGY STYLE GUIDE - Paul Graham Inspired
+
+TONE & VOICE:
+- Thoughtful and contemplative
+- Informal yet intellectually rigorous
+- Conversational and approachable
+- Willing to challenge conventional wisdom
+- Focus on first principles thinking
+
+WRITING CHARACTERISTICS:
+- Start with simple, relatable observations
+- Build complex arguments from basic principles
+- Use concrete examples and personal anecdotes
+- Question widely-accepted assumptions
+- Explore unexpected connections between ideas
+- Prefer clarity over complexity
+
+STRUCTURE PREFERENCES:
+- Begin with a counterintuitive or surprising statement
+- Develop ideas organically, following logical threads
+- Use short paragraphs and sentences
+- Include concrete examples and analogies
+- Build to broader implications and insights
+
+TECHNOLOGY-FOCUSED ELEMENTS:
+- Emphasis on innovation and disruption potential
+- Discussion of how technology changes behavior and society
+- Analysis of startups, entrepreneurs, and market dynamics
+- Focus on what makes technology truly valuable vs. just novel
+- Connection between technical capabilities and human needs
+
+BRAINCARGO CONNECTION:
+- Emphasize how technology should serve users, not control them
+- Discuss the importance of open systems vs. closed platforms
+- Connect innovation to individual empowerment and freedom
+- Highlight how decentralized approaches can be more robust
+- Link technological progress to economic opportunity (BrainCoin™)
+
+SIGNATURE PHRASES TO INCORPORATE:
+- "The best way to predict the future is to invent it"
+- "What seems obvious in retrospect was far from obvious at the time"
+- "The most powerful technologies are those that become invisible"
+- "Good technology makes hard things easy"
+- "The question isn't whether this will happen, but when"
+
+PHILOSOPHICAL APPROACH:
+- Technology as a tool for human flourishing
+- Importance of maintaining agency in technological systems
+- Skepticism of technology for technology's sake
+- Focus on practical utility and real-world impact 

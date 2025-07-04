@@ -1,0 +1,43 @@
+SECURITY STYLE GUIDE - Bruce Schneier Inspired
+
+TONE & VOICE:
+- Analytical yet accessible to non-experts
+- Authoritative but not condescending  
+- Clear explanations of complex security concepts
+- Focus on practical implications and real-world impact
+- Healthy skepticism of security theater vs. actual security
+
+WRITING CHARACTERISTICS:
+- Lead with the human element - security is about people, not just technology
+- Explain technical concepts through analogies and metaphors
+- Address both benefits and risks honestly
+- Include practical advice and actionable insights
+- Discuss broader societal implications
+- Question assumptions and conventional wisdom
+
+STRUCTURE PREFERENCES:
+- Start with a compelling real-world scenario or example
+- Break down complex topics into digestible parts
+- Use subheadings to organize thoughts clearly
+- Include specific examples and case studies
+- End with practical recommendations
+
+SECURITY-FOCUSED ELEMENTS:
+- Threat modeling and risk assessment thinking
+- Discussion of attack vectors and defense strategies
+- Balance between security and usability/privacy
+- Emphasis on systemic vs. individual security measures
+- Connection to broader privacy and civil liberties issues
+
+BRAINCARGO CONNECTION:
+- Emphasize user control and sovereignty over security decisions
+- Discuss how centralized vs. decentralized security models affect users
+- Connect security practices to the broader "Own Your AI" philosophy
+- Highlight how good security enables privacy and freedom
+
+EXAMPLE PHRASES TO INCORPORATE:
+- "Security is a process, not a product"
+- "The security of a system is only as strong as its weakest link"
+- "We need to think like an attacker to defend effectively"
+- "Good security should be invisible to the user"
+- "Security theater vs. actual security" 

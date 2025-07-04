@@ -1,0 +1,19 @@
+# BrainCargo Technical Guidelines
+
+## Architecture Principles
+1. **Multi-provider Support**: Never depend on a single AI provider
+2. **Graceful Degradation**: System should work even if some providers fail
+3. **Knowledge Integration**: Use vector stores to enhance AI responses
+4. **Testing First**: Comprehensive test coverage for all functionality
+
+## Best Practices
+- Always include fallback mechanisms
+- Log important operations for debugging
+- Use environment variables for configuration
+- Implement health checks for all services
+
+## Vector Store Usage
+- Blog generation: Use knowledge for enhanced content
+- Categorization: Keep fast, don't use knowledge
+- Image generation: Keep creative, don't constrain with knowledge
+- Meme generation: Keep spontaneous, don't use knowledge

@@ -1,0 +1,271 @@
+# BrainCargo Blog Generation Pipeline Configuration
+# This file defines the multi-step AI pipeline for generating blog posts
+
+# Environment Configuration
+environment:
+  # Testing Mode - enables fast, cheap models for integration tests
+  test_mode: "${ENABLE_TEST_MODE}"  # Set to "true" for fast testing
+  
+  # Blog Configuration
+  blog:
+    domain: "braincargo.com"  # Test-compatible default
+    company_name: "BrainCargo LLC"  # Test-compatible default
+    service_name: "Brain Blog Service"
+    default_author: "AI Assistant"
+    default_category: "Technology"
+    call_to_action: "Join the Internet of Value & Freedom at braincargo.com"
+  
+  # Media and CDN
+  media:
+    prefix: "media"
+    cdn_base_url: "https://braincargo.com"  # Test-compatible default
+  
+  # Security
+  security:
+    authorized_phone_number: ""  # Empty by default for test compatibility
+  
+  # AWS S3 Storage (optional)
+  aws:
+    access_key_id: "${AWS_ACCESS_KEY_ID}"
+    secret_access_key: "${AWS_SECRET_ACCESS_KEY}"
+    region: "us-west-2"
+    bucket_name: "${BLOG_POSTS_BUCKET}"
+  
+  # Application Settings
+  app:
+    debug: false
+    port: 8080
+    log_level: "INFO"
+  
+  # API Keys - these should be provided via environment variables
+  # For testing, you can set placeholder values here but production should use env vars
+  api_keys:
+    openai: "${OPENAI_API_KEY}"
+    anthropic: "${ANTHROPIC_API_KEY}"
+    grok: "${GROK_API_KEY}"
+    gemini: "${GEMINI_API_KEY}"
+
+# LLM Provider Configurations
+providers:
+  openai:
+    type: "openai"
+    api_key_env: "OPENAI_API_KEY"
+    models:
+      fast: "gpt-4.1-2025-04-14"      # For categorization, quick tasks
+      standard: "o3-pro"              # For blog generation  
+      creative: "o3-pro"              # For image/meme generation
+      test: "gpt-4o-mini"             # Fast, cheap model for testing
+    test_models:
+      fast: "gpt-4o-mini"             # Super fast for test categorization
+      standard: "gpt-4o-mini"         # Fast for test blog generation
+      creative: "gpt-4o-mini"         # Fast for test image/meme generation
+    default_temperature: 0.7
+    max_tokens: 4000
+  
+  anthropic:
+    type: "anthropic"
+    api_key_env: "ANTHROPIC_API_KEY"
+    models:
+      fast: "claude-sonnet-4-20250514"
+      standard: "claude-sonnet-4-20250514"
+      creative: "claude-sonnet-4-20250514"
+      test: "claude-3-5-haiku-20241022"    # Fast, cheap model for testing
+    test_models:
+      fast: "claude-3-5-haiku-20241022"    # Super fast for test categorization
+      standard: "claude-3-5-haiku-20241022" # Fast for test blog generation
+      creative: "claude-3-5-haiku-20241022" # Fast for test image/meme generation
+    default_temperature: 0.7
+    max_tokens: 4000
+  
+  grok:
+    type: "grok"
+    api_key_env: "GROK_API_KEY"
+    models:
+      fast: "grok-beta"
+      standard: "grok-beta"
+      creative: "grok-beta"
+      test: "grok-beta"                    # Grok is already fast
+    test_models:
+      fast: "grok-beta"                    # Already fast for categorization
+      standard: "grok-beta"                # Fast for test blog generation
+      creative: "grok-beta"                # Fast for test image/meme generation
+    image_models:
+      default: "grok-vision-beta"
+    default_temperature: 0.7
+    max_tokens: 4000
+    supported_sizes: ["1024x1024", "1792x1024", "1024x1792"]
+    default_size: "1024x1024"
+  
+  gemini:
+    type: "gemini"
+    api_key_env: "GEMINI_API_KEY"
+    models:
+      fast: "gemini-2.5-pro"
+      standard: "gemini-2.5-pro"
+      creative: "gemini-2.5-pro"
+      test: "gemini-1.5-flash"             # Fast, cheap model for testing
+    test_models:
+      fast: "gemini-1.5-flash"             # Super fast for test categorization
+      standard: "gemini-1.5-flash"         # Fast for test blog generation
+      creative: "gemini-1.5-flash"         # Fast for test image/meme generation
+    image_models:
+      default: "imagegeneration@006"
+    default_temperature: 0.7
+    max_tokens: 4000
+    supported_sizes: ["1024x1024", "1792x1024", "1024x1792"]
+    default_size: "1024x1024"
+
+# Vector Store Configuration (Knowledge Base Integration)
+vector_stores:
+  enabled: true  # Enable knowledge base integration for enhanced responses
+  
+  openai:
+    enabled: true
+    vector_store_ids: "${OPENAI_VECTOR_STORE_IDS}"  # From environment or auto-detected from manifest
+    manifest_file: "openai_store/openai_vector_store.json"
+    auto_detect: true  # Automatically load from manifest if env var not set
+  
+  anthropic:
+    enabled: true
+    file_ids: "${ANTHROPIC_FILE_IDS}"  # Comma-separated file IDs or auto-detected
+    manifest_file: "openai_store/anthropic_uploads.json" 
+    auto_detect: true  # Automatically load from manifest if env var not set
+  
+  # When to use knowledge files
+  usage:
+    blog_generation: true     # Use knowledge for blog content generation
+    categorization: false     # Don't use for categorization (keep fast)
+    image_generation: false   # Don't use for image prompts (keep creative)
+    meme_generation: false    # Don't use for meme generation (keep fast)
+
+# Pipeline Steps Configuration
+pipeline:
+  steps:
+    - name: "categorize"
+      provider: "openai"
+      model: "fast"
+      prompt_template: "categorization/main.txt"
+      temperature: 0.3
+      max_tokens: 100
+      output_format: "json"
+      
+    - name: "generate_blog"
+      provider: "openai"  # Can be overridden per category
+      model: "standard"
+      prompt_template: "blog_generation/base.txt"
+      temperature: 0.7
+      max_tokens: 3000
+      output_format: "json"
+      
+    - name: "generate_image_instructions"
+      provider: "openai"
+      model: "creative"
+      prompt_template: "image_generation/main.txt"
+      temperature: 0.8
+      max_tokens: 500
+      output_format: "json"
+      
+    - name: "generate_meme"
+      provider: "openai"
+      model: "creative"
+      prompt_template: "meme_generation/main.txt"
+      temperature: 0.9
+      max_tokens: 300
+      output_format: "json"
+
+# Category Configurations
+categories:
+  security:
+    name: "Security & Cybersecurity"
+    style_prompt: "blog_generation/security_style.txt"
+    style_persona: "Bruce Schneier"
+    provider_override: "openai"  # Can specify different provider per category
+    image_provider: "openai"     # Provider for image generation
+    meme_provider: "grok"        # Provider for meme generation
+    
+  technology:
+    name: "Technology & Innovation"
+    style_prompt: "blog_generation/tech_style.txt"
+    style_persona: "Paul Graham"
+    provider_override: "anthropic"
+    image_provider: "gemini"     # Use Gemini for tech images
+    meme_provider: "openai"      # Use OpenAI for tech memes
+    
+  web3:
+    name: "Web3 & Blockchain"
+    style_prompt: "blog_generation/web3_style.txt"
+    style_persona: "Vitalik Buterin"
+    provider_override: "openai"
+    image_provider: "openai"     # DALL-E for crypto/web3 imagery
+    meme_provider: "grok"        # Grok for edgy crypto memes
+    
+  crypto:
+    name: "Cryptocurrency & DeFi"
+    style_prompt: "blog_generation/crypto_style.txt"
+    style_persona: "Naval Ravikant"
+    provider_override: "openai"
+    image_provider: "openai"     # DALL-E for financial imagery
+    meme_provider: "grok"        # Grok for crypto humor
+    
+  politics:
+    name: "Politics & Policy"
+    style_prompt: "blog_generation/politics_style.txt"
+    style_persona: "Matt Taibbi"
+    provider_override: "anthropic"
+    image_provider: "gemini"     # Gemini for political imagery
+    meme_provider: "grok"        # Grok for political memes
+    
+  privacy:
+    name: "Privacy & Digital Rights"
+    style_prompt: "blog_generation/privacy_style.txt"
+    style_persona: "Edward Snowden"
+    provider_override: "openai"
+    image_provider: "openai"     # DALL-E for privacy/security imagery
+    meme_provider: "openai"      # OpenAI for privacy memes
+
+# Image Generation Settings
+image_generation:
+  enabled: true
+  provider: "openai"  # Primary provider
+  fallback_providers: ["grok", "gemini"]  # Providers to try if primary fails
+  style: "professional_blog_featured_image"
+  size: "1792x1024"
+  quality: "hd"
+  retry_with_fallback: true
+  max_retries_per_provider: 2
+  
+# Meme Generation Settings  
+meme_generation:
+  enabled: true
+  provider: "openai"  # Primary provider
+  fallback_providers: ["grok", "gemini"]  # Providers to try if primary fails
+  style: "witty_tech_meme"
+  retry_with_fallback: true
+  max_retries_per_provider: 2
+  templates:
+    - "drake_pointing"
+    - "distracted_boyfriend" 
+    - "expanding_brain"
+    - "this_is_fine"
+    - "change_my_mind"
+
+# Error Handling & Fallbacks
+error_handling:
+  retry_attempts: 3
+  fallback_provider: "openai"
+  fallback_model: "gpt-4o-mini"
+  timeout_seconds: 60
+
+# Output Configuration
+output:
+  blog_post:
+    format: "json"
+    required_fields: ["title", "summary", "content", "category", "style_persona"]
+  
+  image_instructions:
+    format: "json"
+    required_fields: ["prompt", "style", "composition", "colors"]
+    
+  meme:
+    format: "json" 
+    required_fields: ["template", "top_text", "bottom_text", "context"] 

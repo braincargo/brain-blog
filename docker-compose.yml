@@ -1,0 +1,41 @@
+services:
+  braincargo-blog-service:
+    image: braincargo/brain-blog:latest
+    container_name: brain-blog
+    ports:
+      - "8080:8080"
+    volumes:
+      # User configuration
+      - ./config/.env:/app/config/.env:ro
+      - ./config/pipeline.yaml:/app/config/pipeline.yaml:ro
+      
+      # Custom prompts (optional - defaults included in image)
+      - ./prompts:/app/prompts:ro
+      
+      # Vector store documents for knowledge base
+      - ./vector_store_docs:/app/vector_store_docs:ro
+      
+      # Vector store manifests (persistent)
+      - ./openai_store:/app/openai_store
+      
+      # Output directory for generated blogs
+      - ./output:/app/local_output
+      
+    environment:
+      - PYTHONPATH=/app
+      
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+      
+    restart: unless-stopped
+    
+    # Ensure proper file permissions
+    user: "1000:1000"
+
+networks:
+  default:
+    name: brain-blog-network

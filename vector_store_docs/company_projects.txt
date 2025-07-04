@@ -1,0 +1,21 @@
+# BrainCargo Projects
+
+## Blog Service
+Automated blog post generation with AI integration:
+- Multi-provider AI support (OpenAI, Anthropic, Grok, Gemini)
+- Image and meme generation capabilities
+- Vector store knowledge integration
+- Comprehensive testing framework
+
+## Features
+- Automatic categorization of blog topics
+- SEO-optimized content generation
+- Fallback mechanisms for reliability
+- Docker-based deployment
+- Health monitoring and logging
+
+## Recent Achievements
+- Open source release preparation
+- Documentation consolidation
+- Vector store integration
+- Professional test suite implementation
