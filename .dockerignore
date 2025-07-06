@@ -1,0 +1,62 @@
+# Environment files - CRITICAL to exclude
+.env
+.env.*
+config/.env
+config/.env.*
+
+# Sensitive configuration files
+config/pipeline.yaml
+config/app_settings.py
+
+# Development and build artifacts
+.git
+.gitignore
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.coverage
+.mypy_cache/
+.ruff_cache/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Output directories
+generated_blogs/
+local_output/
+temp/
+logs/
+
+# Documentation and development files
+*.md
+docs/
+tests/
+*.log
+
+# Development requirements
+requirements-dev.txt
+pyproject.toml
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints 
+
+openai_store/*.json
+*/__pycache__/

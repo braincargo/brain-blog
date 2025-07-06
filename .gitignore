@@ -76,9 +76,6 @@ local_output/
 output/
 temp/
 
-# Docker
-.dockerignore
-
 # Jupyter Notebook
 .ipynb_checkpoints
 
