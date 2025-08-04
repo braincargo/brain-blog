@@ -1,9 +1,28 @@
 services:
+  # Reverse Proxy for Security
+  nginx-proxy:
+    image: nginx:alpine
+    container_name: brain-blog-proxy
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - braincargo-blog-service
+    networks:
+      - brain-blog-internal
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    
   braincargo-blog-service:
     image: braincargo/brain-blog:latest
     container_name: brain-blog
-    ports:
-      - "8080:8080"
+    # Security: No external port exposure - only accessible via reverse proxy
+    expose:
+      - "8080"
     volumes:
       # User configuration
       - ./config/.env:/app/config/.env:ro
@@ -23,6 +42,9 @@ services:
       
     environment:
       - PYTHONPATH=/app
+      - ENVIRONMENT=production
+      - RATE_LIMIT_ENABLED=true
+      - API_KEY_REQUIRED=true
       
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -33,9 +55,21 @@ services:
       
     restart: unless-stopped
     
-    # Ensure proper file permissions
+    # Security: Ensure proper file permissions and capabilities
     user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
+      - brain-blog-internal
 
 networks:
-  default:
-    name: brain-blog-network
+  brain-blog-internal:
+    driver: bridge
+    internal: false
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

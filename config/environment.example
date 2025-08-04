@@ -11,6 +11,28 @@ OPENAI_API_KEY=your_openai_api_key_here
 # Phone Authorization (Required for SMS webhook)
 AUTHORIZED_PHONE_NUMBER=1234567890
 
+# Twilio Webhook Security (CRITICAL - prevents spoofing attacks)
+TWILIO_AUTH_TOKEN=your_twilio_auth_token_here
+
+# ===========================================
+# SECURITY CONFIGURATION (CRITICAL)
+# ===========================================
+
+# API Access Key for programmatic endpoints (Required for production)
+API_ACCESS_KEY=your_secure_api_key_here_min_32_chars
+
+# Environment setting (affects security policies)
+ENVIRONMENT=production
+
+# Security Features
+RATE_LIMIT_ENABLED=true
+API_KEY_REQUIRED=true
+MAX_REQUEST_SIZE=16777216
+WEBHOOK_SIGNATURE_VALIDATION=true
+
+# Debug Mode (NEVER enable in production)
+DEBUG=false
+ENABLE_TEST_MODE=false
 
 # ===========================================
 # AWS S3 CONFIGURATION (Optional but recommended)
@@ -37,3 +59,34 @@ GEMINI_API_KEY=your_gemini_api_key
 OPENAI_VECTOR_STORE_IDS=vs_store_id1,vs_store_id2
 
 ANTHROPIC_FILE_IDS=file_id1,file_id2,file_id3
+
+# ===========================================
+# APPLICATION CONFIGURATION
+# ===========================================
+
+# Blog Configuration
+BLOG_DOMAIN=yourdomain.com
+COMPANY_NAME=Your Company LLC
+SERVICE_NAME=Your Blog Service
+BLOG_DEFAULT_AUTHOR=AI Assistant
+BLOG_DEFAULT_CATEGORY=Technology
+
+# CDN and Media
+CDN_BASE_URL=https://yourdomain.com
+MEDIA_PREFIX=media
+
+# Application Settings
+PORT=8080
+LOG_LEVEL=INFO
+
+# ===========================================
+# PRODUCTION SECURITY CHECKLIST
+# ===========================================
+# □ Set strong API_ACCESS_KEY (min 32 characters)
+# □ Configure AUTHORIZED_PHONE_NUMBER for webhook auth
+# □ Set ENVIRONMENT=production
+# □ Ensure DEBUG=false
+# □ Configure SSL certificates in nginx
+# □ Review and restrict network access
+# □ Enable monitoring and logging
+# □ Regular security updates

@@ -101,16 +101,46 @@ class SecuritySettings:
     """Security-related configuration settings"""
     
     authorized_phone_number: str = field(default_factory=lambda: get_config_value('AUTHORIZED_PHONE_NUMBER', 'security.authorized_phone_number', ''))
+    twilio_auth_token: str = field(default_factory=lambda: get_config_value('TWILIO_AUTH_TOKEN', 'security.twilio_auth_token', ''))
+    api_key_required: bool = field(default_factory=lambda: get_config_value('API_KEY_REQUIRED', 'security.api_key_required', 'true').lower() == 'true')
+    max_request_size: int = field(default_factory=lambda: int(get_config_value('MAX_REQUEST_SIZE', 'security.max_request_size', '16777216')))  # 16MB
+    rate_limit_enabled: bool = field(default_factory=lambda: get_config_value('RATE_LIMIT_ENABLED', 'security.rate_limit_enabled', 'true').lower() == 'true')
+    webhook_signature_validation: bool = field(default_factory=lambda: get_config_value('WEBHOOK_SIGNATURE_VALIDATION', 'security.webhook_signature_validation', 'true').lower() == 'true')
     
     def is_phone_authorized(self, phone_number: str) -> bool:
-        """Check if phone number is authorized"""
+        """Check if phone number is authorized - STRICT VALIDATION"""
         if not self.authorized_phone_number:
-            logger.error("❌ AUTHORIZED_PHONE_NUMBER not configured")
+            logger.error("❌ AUTHORIZED_PHONE_NUMBER not configured - denying access")
             return False
         
-        # Clean phone number for comparison
-        clean_phone = ''.join(filter(str.isdigit, phone_number))
-        return clean_phone.endswith(self.authorized_phone_number)
+        # Clean phone numbers for comparison
+        clean_incoming = ''.join(filter(str.isdigit, phone_number))
+        clean_authorized = ''.join(filter(str.isdigit, self.authorized_phone_number))
+        
+        # Require exact match of last 10 digits (US phone number format)
+        if len(clean_authorized) >= 10:
+            authorized_suffix = clean_authorized[-10:]
+            incoming_suffix = clean_incoming[-10:] if len(clean_incoming) >= 10 else clean_incoming
+            is_authorized = authorized_suffix == incoming_suffix
+        else:
+            # Fallback to full number match for international numbers
+            is_authorized = clean_incoming == clean_authorized
+        
+        if not is_authorized:
+            logger.warning(f"🚫 Phone authorization failed: {clean_incoming[-4:]}*** vs {clean_authorized[-4:]}***")
+        
+        return is_authorized
+    
+    def validate_api_key(self, provided_key: str) -> bool:
+        """Validate API key for programmatic access"""
+        expected_key = os.environ.get('API_ACCESS_KEY')
+        if not expected_key:
+            logger.warning("API_ACCESS_KEY not configured")
+            return False
+        
+        # Use constant-time comparison to prevent timing attacks
+        import hmac
+        return hmac.compare_digest(provided_key, expected_key)
 
 
 @dataclass
@@ -183,12 +213,18 @@ class AppSettings:
             'valid': True,
             'errors': [],
             'warnings': [],
+            'security_issues': [],
             'api_status': self.api.validate_required_keys()
         }
         
-        # Check critical settings
+        # Check critical security settings
         if not self.security.authorized_phone_number:
-            validation['warnings'].append('AUTHORIZED_PHONE_NUMBER not configured - webhook auth disabled')
+            validation['errors'].append('AUTHORIZED_PHONE_NUMBER not configured - webhook will be disabled')
+            validation['valid'] = False
+        
+        # Check for debug mode in production
+        if self.debug and os.environ.get('ENVIRONMENT', 'production').lower() == 'production':
+            validation['security_issues'].append('DEBUG mode enabled in production environment')
         
         # Check that at least one AI provider is available
         available_providers = self.api.get_available_providers()
@@ -204,6 +240,18 @@ class AppSettings:
         
         if self.blog.domain == 'braincargo.com':
             validation['warnings'].append('BLOG_DOMAIN not configured - using placeholder')
+        
+        # Security recommendations
+        if not os.environ.get('API_ACCESS_KEY'):
+            validation['warnings'].append('API_ACCESS_KEY not configured - programmatic API access disabled')
+        
+        # Critical: Check Twilio webhook signature validation
+        if not self.security.twilio_auth_token:
+            validation['security_issues'].append('TWILIO_AUTH_TOKEN not configured - webhook vulnerable to spoofing attacks')
+            validation['valid'] = False
+        
+        if not self.security.webhook_signature_validation:
+            validation['security_issues'].append('Webhook signature validation disabled - spoofing attacks possible')
         
         return validation
     

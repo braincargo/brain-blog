@@ -12,11 +12,14 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, unquote
 import uuid
 import time
+from functools import wraps
+from collections import defaultdict
+import hashlib
 
 import boto3
 import requests
 from bs4 import BeautifulSoup
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, abort
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -45,8 +48,319 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 
+# Security Configuration
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max request size
+app.config['JSON_SORT_KEYS'] = False
+
+# Rate limiting storage
+rate_limit_storage = defaultdict(list)
+RATE_LIMIT_REQUESTS = 10  # requests per minute
+RATE_LIMIT_WINDOW = 60   # seconds
+
 # Track application start time for uptime metrics
 start_time = time.time()
+
+# Security Headers Middleware
+@app.after_request
+def add_security_headers(response):
+    """Add security headers to all responses"""
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Content-Security-Policy'] = "default-src 'self'"
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
+
+# Rate Limiting Middleware
+def rate_limit(max_requests=RATE_LIMIT_REQUESTS, window_seconds=RATE_LIMIT_WINDOW):
+    """Rate limiting decorator"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            # Get client identifier (IP address)
+            client_ip = request.environ.get('HTTP_X_REAL_IP', request.remote_addr)
+            
+            # Clean up old entries
+            now = time.time()
+            rate_limit_storage[client_ip] = [
+                req_time for req_time in rate_limit_storage[client_ip]
+                if now - req_time < window_seconds
+            ]
+            
+            # Check rate limit
+            if len(rate_limit_storage[client_ip]) >= max_requests:
+                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+                return jsonify({
+                    'success': False, 
+                    'error': 'Rate limit exceeded. Please try again later.'
+                }), 429
+            
+            # Add current request
+            rate_limit_storage[client_ip].append(now)
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+# Input Validation Middleware
+def validate_json_input(required_fields=None, optional_fields=None):
+    """JSON input validation decorator"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not request.is_json:
+                return jsonify({'success': False, 'error': 'Content-Type must be application/json'}), 400
+            
+            try:
+                data = request.get_json()
+            except Exception:
+                return jsonify({'success': False, 'error': 'Invalid JSON format'}), 400
+            
+            if not data:
+                return jsonify({'success': False, 'error': 'JSON body is required'}), 400
+            
+            # Check required fields
+            if required_fields:
+                missing_fields = [field for field in required_fields if field not in data]
+                if missing_fields:
+                    return jsonify({
+                        'success': False, 
+                        'error': f'Missing required fields: {", ".join(missing_fields)}'
+                    }), 400
+            
+            # Validate field types and sanitize input
+            for key, value in data.items():
+                if isinstance(value, str):
+                    # Sanitize string inputs
+                    data[key] = sanitize_string_input(value)
+                    
+                    # Check for suspicious patterns
+                    if any(pattern in value.lower() for pattern in ['<script', 'javascript:', 'data:text/html']):
+                        logger.warning(f"Suspicious input detected from {request.remote_addr}: {key}")
+                        return jsonify({'success': False, 'error': 'Invalid input detected'}), 400
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+# API Key Authentication Middleware
+def require_api_key(f):
+    """API key authentication decorator for programmatic endpoints"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            # Get settings
+            settings = get_settings()
+            security = settings.security
+            
+            # Check if API key validation is enabled
+            if not security.api_key_required:
+                logger.debug("API key validation disabled - skipping")
+                return f(*args, **kwargs)
+            
+            # Check if API_ACCESS_KEY is configured
+            if not os.environ.get('API_ACCESS_KEY'):
+                logger.error("❌ API_ACCESS_KEY not configured but API_KEY_REQUIRED=true")
+                return jsonify({
+                    'success': False, 
+                    'error': 'API authentication not properly configured'
+                }), 500
+            
+            # Check for API key in headers
+            api_key = None
+            
+            # Support multiple header formats
+            if 'X-API-Key' in request.headers:
+                api_key = request.headers.get('X-API-Key')
+            elif 'Authorization' in request.headers:
+                auth_header = request.headers.get('Authorization')
+                if auth_header and auth_header.startswith('Bearer '):
+                    api_key = auth_header[7:]  # Remove "Bearer " prefix
+                elif auth_header and auth_header.startswith('API-Key '):
+                    api_key = auth_header[8:]  # Remove "API-Key " prefix
+            
+            # Check if API key was provided
+            if not api_key:
+                logger.warning(f"🚫 Missing API key from IP: {request.remote_addr}")
+                return jsonify({
+                    'success': False, 
+                    'error': 'API key required. Provide via X-API-Key header or Authorization: Bearer <key>'
+                }), 401
+            
+            # Validate API key
+            is_valid = security.validate_api_key(api_key)
+            
+            if not is_valid:
+                logger.warning(f"🚫 Invalid API key from IP: {request.remote_addr}")
+                return jsonify({
+                    'success': False, 
+                    'error': 'Invalid API key'
+                }), 401
+            
+            logger.info(f"✅ Valid API key authentication from IP: {request.remote_addr}")
+            return f(*args, **kwargs)
+            
+        except Exception as e:
+            logger.error(f"API key validation error: {str(e)}")
+            return jsonify({
+                'success': False, 
+                'error': 'Authentication system error'
+            }), 500
+    
+    return decorated_function
+
+def sanitize_string_input(input_string):
+    """Sanitize string input to prevent injection attacks"""
+    if not isinstance(input_string, str):
+        return input_string
+    
+    # Remove HTML tags
+    import re
+    cleaned = re.sub(r'<[^>]+>', '', input_string)
+    
+    # Normalize whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    # Limit length
+    return cleaned[:10000]
+
+# Twilio webhook signature validation
+def validate_twilio_signature(f):
+    """Validate Twilio webhook signature to prevent spoofing attacks"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            import hmac
+            import hashlib
+            import base64
+            from urllib.parse import urlencode
+            
+            # Get Twilio Auth Token
+            twilio_auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+            if not twilio_auth_token:
+                logger.error("❌ TWILIO_AUTH_TOKEN not configured - webhook signature validation disabled")
+                return create_twiml_response("⚠️ Service not properly configured")
+            
+            # Get signature from Twilio
+            twilio_signature = request.headers.get('X-Twilio-Signature')
+            if not twilio_signature:
+                logger.warning(f"🚫 Missing Twilio signature from IP: {request.remote_addr}")
+                return create_twiml_response("⚠️ Invalid webhook source")
+            
+            # Build the signed string
+            # Format: URL + sorted POST parameters
+            url = request.url
+            if request.method == 'POST':
+                # Get all form data and sort parameters
+                params = []
+                for key in sorted(request.form.keys()):
+                    params.append(f"{key}{request.form[key]}")
+                post_vars = ''.join(params)
+                signed_string = url + post_vars
+            else:
+                signed_string = url
+            
+            # Compute expected signature
+            expected_signature = base64.b64encode(
+                hmac.new(
+                    twilio_auth_token.encode('utf-8'),
+                    signed_string.encode('utf-8'),
+                    hashlib.sha1
+                ).digest()
+            ).decode('utf-8')
+            
+            # Validate signature using constant-time comparison
+            if not hmac.compare_digest(twilio_signature, expected_signature):
+                logger.warning(f"🚫 Invalid Twilio signature from IP: {request.remote_addr}")
+                logger.warning(f"   Expected: {expected_signature[:10]}...")
+                logger.warning(f"   Received: {twilio_signature[:10]}...")
+                return create_twiml_response("⚠️ Invalid webhook signature")
+            
+            # Additional phone number authorization
+            form_data = request.form
+            from_number = form_data.get('From', '')
+            
+            if not from_number:
+                logger.warning("No phone number provided in validated webhook request")
+                return create_twiml_response("⚠️ Phone number required")
+            
+            # Check phone authorization
+            settings = get_settings()
+            security = settings.security
+            
+            if not security.authorized_phone_number:
+                logger.error("❌ AUTHORIZED_PHONE_NUMBER not configured")
+                return create_twiml_response("⚠️ Service not properly configured")
+            
+            is_authorized = security.is_phone_authorized(from_number)
+            
+            if not is_authorized:
+                logger.warning(f"🚫 Unauthorized phone number: {from_number} (webhook signature valid)")
+                return create_twiml_response("⚠️ Unauthorized phone number")
+            
+            logger.info(f"✅ Valid Twilio webhook from authorized number: {from_number}")
+            return f(*args, **kwargs)
+            
+        except Exception as e:
+            logger.error(f"Twilio signature validation error: {str(e)}")
+            return create_twiml_response("⚠️ Webhook validation failed")
+    
+    return decorated_function
+
+# Enhanced webhook authentication with replay protection
+def require_phone_auth_with_replay_protection(f):
+    """Legacy authentication with added replay protection"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            # Check for timestamp to prevent replay attacks
+            twilio_timestamp = request.headers.get('X-Twilio-Timestamp')
+            if twilio_timestamp:
+                try:
+                    timestamp = int(twilio_timestamp)
+                    current_time = int(time.time())
+                    
+                    # Reject requests older than 5 minutes (300 seconds)
+                    if abs(current_time - timestamp) > 300:
+                        logger.warning(f"🚫 Webhook replay attack detected - timestamp too old: {timestamp}")
+                        return create_twiml_response("⚠️ Request expired")
+                except ValueError:
+                    logger.warning(f"🚫 Invalid timestamp format: {twilio_timestamp}")
+                    return create_twiml_response("⚠️ Invalid timestamp")
+            
+            # Get settings
+            settings = get_settings()
+            security = settings.security
+            
+            # Parse Twilio form data
+            form_data = request.form
+            from_number = form_data.get('From', '')
+            
+            if not from_number:
+                logger.warning("No phone number provided in webhook request")
+                return create_twiml_response("⚠️ Authentication required")
+            
+            # Check authorization - NO BYPASS ALLOWED
+            if not security.authorized_phone_number:
+                logger.error("❌ AUTHORIZED_PHONE_NUMBER not configured - webhook disabled")
+                return create_twiml_response("⚠️ Service not properly configured")
+            
+            # Strict phone number matching
+            is_authorized = security.is_phone_authorized(from_number)
+            
+            if not is_authorized:
+                logger.warning(f"🚫 Unauthorized webhook attempt from: {from_number}")
+                return create_twiml_response("⚠️ Unauthorized")
+            
+            logger.info(f"✅ Authorized webhook from {from_number}")
+            return f(*args, **kwargs)
+            
+        except Exception as e:
+            logger.error(f"Authentication error: {str(e)}")
+            return create_twiml_response("⚠️ Authentication failed")
+    
+    return decorated_function
 
 # Initialize OpenAI client
 OPENAI_AVAILABLE = False
@@ -123,20 +437,26 @@ except Exception as e:
     logger.error(f"❌ S3 client initialization failed: {str(e)}")
 
 # Add request logging middleware
-
-
 @app.before_request
 def log_request_info():
-    """Log incoming requests"""
+    """Log incoming requests with security information"""
+    # Log security-relevant information but filter sensitive data
+    headers_to_log = {
+        k: v for k, v in request.headers.items() 
+        if k.lower() not in ['authorization', 'cookie', 'x-api-key']
+    }
+    
     logger.info(
-        f"📥 {request.method} {request.url} - Headers: {dict(request.headers)} - IP: {request.remote_addr}")
-
+        f"📥 {request.method} {request.url} - IP: {request.remote_addr} - "
+        f"User-Agent: {request.headers.get('User-Agent', 'Unknown')[:100]}"
+    )
 
 @app.after_request
 def log_response_info(response):
     """Log outgoing responses"""
+    # Don't log response content for security
     logger.info(
-        f"📤 {request.method} {request.url} - Status: {response.status_code} - Size: {response.content_length}")
+        f"📤 {request.method} {request.url} - Status: {response.status_code}")
     return response
 
 
@@ -295,8 +615,15 @@ def metrics_endpoint():
 
 
 @app.route('/debug/test-mode', methods=['GET'])
+@rate_limit(max_requests=5, window_seconds=60)  # 5 requests per minute
 def debug_test_mode():
-    """Debug endpoint to check test mode status"""
+    """Debug endpoint to check test mode status - RESTRICTED"""
+    # Only allow in debug/test mode
+    app_settings = get_settings()
+    if not app_settings.debug and os.environ.get('ENABLE_TEST_MODE') != 'true':
+        logger.warning(f"Debug endpoint access denied from {request.remote_addr}")
+        return jsonify({'error': 'Debug endpoint disabled in production'}), 403
+    
     try:
         test_mode_info = {
             'test_mode_env': os.environ.get('ENABLE_TEST_MODE', 'not set'),
@@ -329,6 +656,7 @@ def root_webhook():
 
 
 @app.route('/webhook', methods=['POST'])
+@validate_twilio_signature
 def twilio_webhook():
     """Handle Twilio SMS webhook"""
     try:
@@ -344,58 +672,6 @@ def twilio_webhook():
         to_number = form_data.get('To', '')
 
         logger.info(f"📨 SMS from {from_number} to {to_number}: {sms_body}")
-
-        # Security: Only accept messages from authorized phone number
-        # Use the same approach as the production code but handle test mocking
-        is_authorized = False
-        
-        try:
-            # Get settings - import here to ensure test mocking works correctly
-            from config.app_settings import get_settings as _get_settings
-            settings = _get_settings()
-            logger.info(f"🔐 Authorization check starting for {from_number}")
-            
-            # Check if phone authorization is disabled (for some tests)
-            security = settings.security
-            enable_phone_auth = getattr(security, 'enable_phone_auth', True)
-            logger.info(f"🔐 Phone auth enabled: {enable_phone_auth}")
-            
-            if enable_phone_auth == False:
-                logger.info("🔓 Phone authorization disabled")
-                is_authorized = True
-            else:
-                # Try to get authorized phone from test or production settings
-                authorized_phone = getattr(security, 'authorized_phone', None) or getattr(security, 'authorized_phone_number', None)
-                logger.info(f"🔐 Found authorized phone: {authorized_phone}")
-                
-                if authorized_phone:
-                    # Check if phone numbers match
-                    clean_from = ''.join(filter(str.isdigit, from_number))
-                    clean_authorized = ''.join(filter(str.isdigit, str(authorized_phone)))
-                    is_authorized = clean_from == clean_authorized
-                    logger.info(f"🔐 Checking authorization: {clean_from} vs {clean_authorized} = {is_authorized}")
-                else:
-                    # Try using the production method if available
-                    try:
-                        security_settings = get_security_settings()
-                        if hasattr(security_settings, 'is_phone_authorized'):
-                            is_authorized = security_settings.is_phone_authorized(from_number)
-                            logger.info(f"🔐 Using production phone check: {is_authorized}")
-                        else:
-                            logger.warning("⚠️ No phone authorization configured")
-                            is_authorized = False
-                    except Exception as e:
-                        logger.warning(f"⚠️ Phone authorization check failed: {str(e)}")
-                        is_authorized = False
-        except Exception as e:
-            logger.error(f"Security check failed: {str(e)}")
-            is_authorized = False
-        
-        if not is_authorized:
-            logger.warning(f"🚫 Unauthorized SMS attempt from: {from_number}")
-            return create_twiml_response("⚠️ Unauthorized")
-
-        logger.info(f"✅ Authorized SMS from {from_number}")
 
         # Extract URLs from SMS message
         urls = extract_urls_from_text(sms_body)
@@ -1225,6 +1501,9 @@ def generate_featured_image_prompt(title, summary, category):
 
 
 @app.route('/blog/sync', methods=['POST'])
+@rate_limit(max_requests=2, window_seconds=300)  # 2 requests per 5 minutes
+@require_api_key
+@validate_json_input()
 def sync_blog_indexes_endpoint():
     """Manually sync blog indexes between local and S3"""
     try:
@@ -1265,6 +1544,9 @@ def sync_blog_indexes_endpoint():
 
 
 @app.route('/blog/rebuild', methods=['POST'])
+@rate_limit(max_requests=1, window_seconds=600)  # 1 request per 10 minutes
+@require_api_key
+@validate_json_input()
 def rebuild_blog_index_endpoint():
     """Rebuild blog index from existing files"""
     try:
@@ -1326,19 +1608,15 @@ def blog_index_stats():
 
 
 @app.route('/generate', methods=['POST'])
+@rate_limit(max_requests=5, window_seconds=300)  # 5 requests per 5 minutes
+@require_api_key
+@validate_json_input()
 def generate_blog():
     """Generate blog post from URL, topic, or content"""
     try:
-        # Handle JSON parsing errors explicitly
-        try:
-            data = request.get_json()
-        except Exception:
-            return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
+        data = request.get_json()
         
         # Input validation
-        if not data:
-            return jsonify({'success': False, 'error': 'Invalid JSON'}), 400
-            
         if not any(k in data for k in ['url', 'topic', 'content']):
             return jsonify({'success': False, 'error': 'Missing input: provide url, topic, or content'}), 400
         
@@ -1609,4 +1887,4 @@ if __name__ == '__main__':
     logger.info(f"🤖 Assistant API Available: {ASSISTANT_API_AVAILABLE}")
     logger.info(f"🗄️ S3 Available: {s3_client is not None}")
 
-    app.run(host='0.0.0.0', port=app_settings.port, debug=app_settings.debug)
+    app.run(host='localhost', port=app_settings.port, debug=app_settings.debug)
